@@ -1,9 +1,6 @@
 package com.afetyardim.afetyardim.service;
 
-import com.afetyardim.afetyardim.model.Site;
-import com.afetyardim.afetyardim.model.SiteStatus;
-import com.afetyardim.afetyardim.model.SiteStatusType;
-import com.afetyardim.afetyardim.model.SiteUpdate;
+import com.afetyardim.afetyardim.model.*;
 import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
@@ -13,6 +10,7 @@ import com.google.api.services.sheets.v4.model.Color;
 import com.google.api.services.sheets.v4.model.RowData;
 import com.google.api.services.sheets.v4.model.Spreadsheet;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +34,135 @@ public class GoogleSheetsService {
   //TODO: Increase spread sheet range
   private final static String ANKARA_SPREAD_SHEET_RANGE = "A1:H150";
 
+  private final static String ISTANBUL_SPREAD_SHEET_ID = "1B0epkFl-4dF4FINjTSONWbHivOu702RBIWYnOM1gWkg";
+
+  private final static String ISTANBUL_SPREAD_SHEET_RANGE = "A1:G300";
+
+  public void updateSitesForIstanbulSpreadSheet() throws IOException {
+
+    log.info("Start Istanbul spread sheet update");
+
+    Collection<Site> istanbulSites = siteService.getSites(Optional.of("İstanbul"), Optional.empty());
+    Spreadsheet spreadsheet = getSpreadSheet(ISTANBUL_SPREAD_SHEET_ID, ISTANBUL_SPREAD_SHEET_RANGE);
+
+    List<RowData> rows = spreadsheet.getSheets().get(0).getData().get(0).getRowData();
+    //Remove first header row
+    rows.remove(0);
+
+    for (int i = 0; i < rows.size(); i++) {
+      RowData row = rows.get(i);
+      try {
+        updateIstanbulSiteForTheRow(row, istanbulSites);
+      } catch (Exception exception) {
+
+        String siteName = "COULD_NOT_COMPUTE_SITE_NAME";
+        try {
+          String calculatedSiteName = (String) row.getValues().get(2).get("formattedValue");
+          if (calculatedSiteName != null) {
+            siteName = calculatedSiteName;
+          }
+        } catch (Exception loggingException) {
+          log.error("Failed to print error log for exception: ", exception, loggingException);
+        }
+        log.warn("Failed to parse rowData while parsing Ankara spreadsheet: Site name: {} Exception: {} RowData: {}",
+                siteName, exception, row);
+      }
+
+      i = Math.min(i + 3, rows.size());
+
+    }
+
+
+    siteService.updateAllSites(istanbulSites);
+  }
+
+  // 0        1               2          3    4       5          6
+  // semt, human need, isim (musaitlik), tel, url, update date, note
+  private void updateIstanbulSiteForTheRow(RowData row, Collection<Site> istanbulSites) {
+
+    String siteName = (String) row.getValues().get(2).get("formattedValue");
+    if (siteName == null) {
+      return;
+    }
+
+    Color activeColor;
+    try{
+      activeColor = row.getValues().get(1).getUserEnteredFormat().getBackgroundColor();
+    }catch(Exception ex){
+      activeColor = null;
+    }
+    boolean active = convertColorToActive(activeColor);
+
+    Color activeNoteColor;
+    try{
+      activeNoteColor = row.getValues().get(2).getUserEnteredFormat().getBackgroundColor();
+    }catch(Exception ex){
+      activeNoteColor = null;
+    }
+    String activeNote = "";
+    // This can be improved
+    // rgb(255, 153, 0)
+    if(activeNoteColor != null && activeNoteColor.getRed() == 255 && activeNoteColor.getGreen() == 153 && activeNoteColor.getBlue() == 0){
+      activeNote = "7/24 açık";
+    }
+
+    Color humanNeed = row.getValues().get(1).getUserEnteredFormat().getBackgroundColor();
+    SiteStatus.SiteStatusLevel humanNeedLevel = convertToSiteStatusLevel(humanNeed);
+    String note;
+    try{
+      note = (String) row.getValues().get(6).get("formattedValue");
+    }catch(Exception ex){
+      note = null;
+    }
+
+    //People are adding extra characters to sitename
+    Optional<Site> existingSite =
+            istanbulSites.stream().filter(
+                    site -> siteName.toLowerCase().contains(site.getName().toLowerCase()) ||
+                            site.getName().toLowerCase().contains(siteName.toLowerCase())
+            ).findAny();
+
+
+    if (existingSite.isPresent()) {
+      Site site = existingSite.get();
+      List<SiteStatus> newSiteStatuses = generateSiteStatus(SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN);
+      site.setLastSiteStatuses(newSiteStatuses);
+      site.setActive(active);
+
+      Optional<SiteUpdate> newSiteUpdate = generateNewSiteUpdate(site, newSiteStatuses, activeNote, note);
+      if (newSiteUpdate.isPresent()) {
+        site.getUpdates().add(newSiteUpdate.get());
+      }
+    } else {
+      log.info("Site not present: {}", siteName);
+      Site site = new Site();
+      site.setName(siteName);
+      site.setId(0);
+      site.setOrganizer("Bilinmiyor");
+      site.setType(SiteType.SUPPLY);
+      site.setCreateDateTime(LocalDateTime.now());
+
+      List<SiteStatus> newSiteStatuses = generateSiteStatus(SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN,
+              SiteStatus.SiteStatusLevel.UNKNOWN);
+      site.setLastSiteStatuses(newSiteStatuses);
+      site.setActive(active);
+
+      Optional<SiteUpdate> newSiteUpdate = generateNewSiteUpdate(site, newSiteStatuses, activeNote, note);
+      if (newSiteUpdate.isPresent()) {
+        site.getUpdates().add(newSiteUpdate.get());
+      }
+      siteService.createSite(site);
+      log.info("Created site: {}", siteName);
+    }
+
+    //TODO Create new site for row that does not match any existing site
+//    Site site = new Site();
+  }
 
   public void updateSitesForAnkaraSpreadSheet() throws IOException {
 
@@ -162,6 +289,9 @@ public class GoogleSheetsService {
   }
 
   private boolean convertColorToActive(Color color) {
+
+    if (color == null)
+      return false;
 
     if (color.getGreen() != null && compareFloats(color.getGreen(), Float.valueOf(1.0f))) {
       return true;

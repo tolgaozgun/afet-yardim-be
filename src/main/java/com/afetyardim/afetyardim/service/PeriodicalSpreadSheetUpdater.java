@@ -12,14 +12,20 @@ import org.springframework.stereotype.Component;
 public class PeriodicalSpreadSheetUpdater {
 
   private final long ANKARA_UPDATE_PERIOD_IN_MILLIS = 10 * 60 * 1000;
-  private final long INITIAL_SCHEDULED_JOB_DELAY_IN_MILLIS = 30 * 1000;
+  private final long INITIAL_SCHEDULED_JOB_DELAY_IN_MILLIS = 5 * 1000;
 
   private final GoogleSheetsService googleSheetsService;
 
   @Scheduled(initialDelay = INITIAL_SCHEDULED_JOB_DELAY_IN_MILLIS, fixedRate = ANKARA_UPDATE_PERIOD_IN_MILLIS)
-  public void scheduleFixedRateTask() throws IOException {
+  public void scheduleAnkaraUpdate() throws IOException {
     log.info("Start ankara spreadsheet updates");
     googleSheetsService.updateSitesForAnkaraSpreadSheet();
+    googleSheetsService.updateSitesForIstanbulSpreadSheet();
     log.info("Finish ankara spreadsheet updates");
   }
+
+
+
+
+
 }

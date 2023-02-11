@@ -1,6 +1,7 @@
 package com.afetyardim.afetyardim.service;
 
 import com.afetyardim.afetyardim.model.*;
+import com.afetyardim.afetyardim.service.common.SpreadSheetUtils;
 import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,7 @@ public class GoogleSheetsService {
   private String API_KEY;
 
   private final SiteService siteService;
+  private final SpreadSheetUtils spreadSheetUtils;
 
   private final static String ANKARA_SPREAD_SHEET_ID = "1TT7DbGj6F6BN10PS0PkSLAXXLyX9i-ILlBEs70X-Lac";
 
@@ -71,8 +74,6 @@ public class GoogleSheetsService {
       i = Math.min(i + 3, rows.size());
 
     }
-
-
     siteService.updateAllSites(istanbulSites);
   }
 
@@ -84,6 +85,14 @@ public class GoogleSheetsService {
     if (siteName == null) {
       return;
     }
+
+    String district;
+    try{
+      district = (String) row.getValues().get(0).get("formattedValue");
+    }catch(Exception ex){
+      district = "";
+    }
+
 
     Color activeColor;
     try{
@@ -115,6 +124,7 @@ public class GoogleSheetsService {
       note = null;
     }
 
+
     //People are adding extra characters to sitename
     Optional<Site> existingSite =
             istanbulSites.stream().filter(
@@ -138,12 +148,40 @@ public class GoogleSheetsService {
       }
     } else {
       log.info("Site not present: {}", siteName);
+
+      String mapUrl;
+      try{
+        mapUrl = (String) row.getValues().get(4).get("formattedValue");
+
+        // Check if mapUrl is valid
+        if(mapUrl == null){
+          log.info("Site map url does not exist, cannot create: {}", siteName);
+          return;
+        }
+
+      }catch(Exception ex){
+        log.info("Site map url does not exist, cannot create: {}", siteName);
+        return;
+      }
+
+      Location location;
+      try {
+        location = buildSiteLocation(mapUrl, "İstanbul", district);
+      } catch (IOException e) {
+        log.info("Error creating location, cannot create site: {}", siteName);
+        return;
+      }
+
+
       Site site = new Site();
       site.setName(siteName);
       site.setId(0);
       site.setOrganizer("Bilinmiyor");
       site.setType(SiteType.SUPPLY);
       site.setCreateDateTime(LocalDateTime.now());
+      site.setLocation(location);
+      site.setVerified(true);
+
 
       List<SiteStatus> newSiteStatuses = generateSiteStatus(SiteStatus.SiteStatusLevel.UNKNOWN,
               SiteStatus.SiteStatusLevel.UNKNOWN,
@@ -159,9 +197,6 @@ public class GoogleSheetsService {
       siteService.createSite(site);
       log.info("Created site: {}", siteName);
     }
-
-    //TODO Create new site for row that does not match any existing site
-//    Site site = new Site();
   }
 
   public void updateSitesForAnkaraSpreadSheet() throws IOException {
@@ -368,5 +403,23 @@ public class GoogleSheetsService {
     double threshold = 0.00001;
     return (Math.abs(float1 - fLoat2) < threshold);
 
+  }
+
+
+  private Location buildSiteLocation(String mapUrl, String city, String district) throws IOException {
+    if (Objects.isNull(mapUrl)) {
+      return null;
+    }
+    Location location = new Location();
+    location.setDistrict(district);
+    location.setCity(city);
+    location.setAdditionalAddress("Bu alana adres tarifi al butonunu kullanınız.");
+    List<Double> coordinates = spreadSheetUtils.getCoordinatesByUrl(mapUrl);
+    if (coordinates.size() < 2) {
+      return null;
+    }
+    location.setLatitude(coordinates.get(0));
+    location.setLongitude(coordinates.get(1));
+    return location;
   }
 }

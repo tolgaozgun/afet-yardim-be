@@ -65,7 +65,7 @@ public class GoogleSheetsService {
             siteName = calculatedSiteName;
           }
         } catch (Exception loggingException) {
-          log.error("Failed to print error log for exception: ", exception, loggingException);
+          log.error("Failed to print error log for exception: {} {}", exception, loggingException);
         }
         log.warn("Failed to parse rowData while parsing Ankara spreadsheet: Site name: {} Exception: {} RowData: {}",
                 siteName, exception, row);
@@ -83,6 +83,7 @@ public class GoogleSheetsService {
 
     String siteName = (String) row.getValues().get(2).get("formattedValue");
     if (siteName == null) {
+      log.info("Could not get siteName, returning");
       return;
     }
 
@@ -105,21 +106,29 @@ public class GoogleSheetsService {
     Color activeNoteColor;
     try{
       activeNoteColor = row.getValues().get(2).getUserEnteredFormat().getBackgroundColor();
+      log.info("activeNoteColor: " + activeNoteColor.toString() + " for " + siteName);
     }catch(Exception ex){
       activeNoteColor = null;
     }
     String activeNote = "";
     // This can be improved
     // rgb(255, 153, 0)
-    if(activeNoteColor != null && activeNoteColor.getRed() == 255 && activeNoteColor.getGreen() == 153 && activeNoteColor.getBlue() == 0){
-      activeNote = "7/24 açık";
+    if(activeNoteColor != null){
+      if(activeNoteColor.getGreen() != null && compareFloats(activeNoteColor.getGreen(), 0.6f) &&
+          activeNoteColor.getRed() != null && compareFloats(activeNoteColor.getRed(), 1.0f)){
+        activeNote = "7/24 açık";
+      }
     }
 
     Color humanNeed = row.getValues().get(1).getUserEnteredFormat().getBackgroundColor();
     SiteStatus.SiteStatusLevel humanNeedLevel = convertToSiteStatusLevel(humanNeed);
+    SiteStatus.SiteStatusLevel packageLevel = convertToSiteStatusLevel(humanNeed);
+    SiteStatus.SiteStatusLevel materialLevel = convertToSiteStatusLevel(humanNeed);
+    SiteStatus.SiteStatusLevel foodLevel = convertToSiteStatusLevel(humanNeed);
+
     String note;
     try{
-      note = (String) row.getValues().get(6).get("formattedValue");
+      note = (String) row.getValues().get(1).get("formattedValue");
     }catch(Exception ex){
       note = null;
     }
@@ -135,10 +144,7 @@ public class GoogleSheetsService {
 
     if (existingSite.isPresent()) {
       Site site = existingSite.get();
-      List<SiteStatus> newSiteStatuses = generateSiteStatus(SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN);
+      List<SiteStatus> newSiteStatuses = generateSiteStatus(materialLevel, humanNeedLevel, foodLevel, packageLevel);
       site.setLastSiteStatuses(newSiteStatuses);
       site.setActive(active);
 
@@ -183,10 +189,7 @@ public class GoogleSheetsService {
       site.setVerified(true);
 
 
-      List<SiteStatus> newSiteStatuses = generateSiteStatus(SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN,
-              SiteStatus.SiteStatusLevel.UNKNOWN);
+      List<SiteStatus> newSiteStatuses = generateSiteStatus(materialLevel, humanNeedLevel, foodLevel, packageLevel);
       site.setLastSiteStatuses(newSiteStatuses);
       site.setActive(active);
 
